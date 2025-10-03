@@ -1,0 +1,98 @@
+name: AWS Glue ETL Pipeline CI/CD
+
+# Controla cuándo se ejecuta el workflow
+on:
+  push:
+    branches:
+      - main
+    paths:
+      # Solo ejecuta el despliegue de infraestructura si cambian los archivos .tf
+      - '**.tf'
+  
+  # Permite la ejecución manual desde la interfaz de GitHub Actions
+  workflow_dispatch:
+    inputs:
+      deploy_option:
+        description: 'Qué deseas desplegar? Código o ejecutar job'
+        required: true
+        type: choice
+        options:
+          - 'Código de Glue (S3)'
+          - 'Ejecutar Job de Glue (CI)'
+          - 'Ambos (Infraestructura + Código + Job)'
+      deploy_value:
+        description: 'Valor: script.py para Código, job_name para Job'
+        required: true
+        type: string
+
+# Define las variables de entorno para todos los jobs
+env:
+  GLUE_SCRIPTS_DIR: glue_scripts
+
+jobs:
+  #job 0: CI de Código Terraform y Glue
+  ci-code:
+    name: 0 - CI Código (Terraform + Glue)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del Repositorio
+        uses: actions/checkout@v4
+
+      - name: Validar Código Terraform
+        uses: hashicorp/terraform-github-actions@v1
+        with:
+          tf_actions_version: 'v1.0.0'
+          tf_actions_subcommand: 'validate'
+          tf_actions_working_dir: '.'
+
+      - name: Validar Código Python de Glue
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+
+      - name: Instalar Dependencias de Python
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
+
+      - name: Ejecutar Linter (flake8) en Código Python de Glue
+        run: |
+          flake8 .
+        working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
+
+      - name: Run Bandit Security Linter
+        run: |
+          pip install bandit
+          bandit -r .
+        working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
+  # Job 1: Desplegar/Actualizar Infraestructura (Terraform)
+  deploy-terraform-infra:
+    name: 1 - Desplegar Infraestructura (Terraform)
+    runs-on: ubuntu-latest
+    
+    # Solo ejecuta este job en un PUSH y si cambian los archivos .tf
+    if: github.event_name == 'push' && contains(github.event.head_commit.modified, '.tf')
+    
+    steps:
+      - name: Checkout del Repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Inicializar Terraform
+        id: init
+        run: terraform init
+
+      - name: Planificar Terraform
+        id: plan
+        run: terraform plan -input=false -var="proyecto_nombre=datos_ventas"

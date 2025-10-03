@@ -1,0 +1,29 @@
+# Archivo de estado de Terraform
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Directorio de Terraform (descargas de plugins y módulos)
+.terraform/
+
+# Archivos de variables y configuración
+*.tfvars
+*.auto.tfvars
+*.tfvars.json
+.terraformrc
+terraform.rc
+
+# Plan de Terraform
+*.tfplan
+
+# Registros de bloqueo y otros archivos de registro
+crash.log
+terraform.log
+
+# Archivos de caché, directorios temporales y otros artefactos generados
+*.terraform.lock.hcl
+
+# Archivos de interfaz de usuario y de configuración del IDE
+.vscode/
+.idea/
+*.iml
