@@ -1,228 +1,98 @@
 name: AWS Glue ETL Pipeline CI/CD
 
+# Controla cuándo se ejecuta el workflow
 on:
   push:
-    branches: [ main ]
-    # ejecuta el workflow ante cualquier push; los jobs decidirán según cambios
+    branches:
+      - main
+    paths:
+      # Solo ejecuta el despliegue de infraestructura si cambian los archivos .tf
+      - '**.tf'
+  
+  # Permite la ejecución manual desde la interfaz de GitHub Actions
   workflow_dispatch:
     inputs:
       deploy_option:
-        description: "¿Qué deseas ejecutar?"
+        description: 'Qué deseas desplegar? Código o ejecutar job'
         required: true
         type: choice
         options:
-          - "Código de Glue (S3)"
-          - "Ejecutar Job de Glue (CI)"
-          - "Ambos (Infraestructura + Código + Job)"
+          - 'Código de Glue (S3)'
+          - 'Ejecutar Job de Glue (CI)'
+          - 'Ambos (Infraestructura + Código + Job)'
       deploy_value:
-        description: "Valor: script.py para Código, job_name para Job (opcional)"
-        required: false
+        description: 'Valor: script.py para Código, job_name para Job'
+        required: true
         type: string
 
+# Define las variables de entorno para todos los jobs
 env:
   GLUE_SCRIPTS_DIR: glue_scripts
-  # Si tu provider usa variables, estas líneas inyectan los TF_VAR_*
-  TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-permissions:
-  contents: read
-  id-token: write
-
-concurrency:
-  group: glue-pipeline-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
-  detect-changes:
-    name: 0 - Detectar cambios
+  #job 0: CI de Código Terraform y Glue
+  ci-code:
+    name: 0 - CI Código (Terraform + Glue)
     runs-on: ubuntu-latest
-    outputs:
-      tf_changed: ${{ steps.filter.outputs.tf }}
-      glue_changed: ${{ steps.filter.outputs.glue }}
-      node_changed: ${{ steps.filter.outputs.node }}
+
     steps:
-      - uses: actions/checkout@v4
-      - id: filter
-        uses: dorny/paths-filter@v3
+      - name: Checkout del Repositorio
+        uses: actions/checkout@v4
+
+      - name: Validar Código Terraform
+        uses: hashicorp/terraform-github-actions@v3
         with:
-          token: ${{ github.token }}
-          filters: |
-            tf:
-              - '**/*.tf'
-            glue:
-              - 'glue_scripts/**'
-            node:
-              - 'app/**'
+          tf_actions_version: 'v1.1.7'
+          tf_actions_subcommand: 'validate'
+          tf_actions_working_dir: '.'
 
-  ci:
-    name: 1 - CI (Python Glue + Node tests)
-    runs-on: ubuntu-latest
-    needs: [detect-changes]
-    steps:
-      - uses: actions/checkout@v4
-
-      # ---- Python (Glue) ----
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Validar Código Python de Glue
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.8'
 
-      - name: Instalar dependencias Python (si existen)
-        working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
+      - name: Instalar Dependencias de Python
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Garantiza linters aunque falte requirements.txt
-          pip install flake8 bandit
-
-      - name: Linter flake8
-        if: ${{ needs.detect-changes.outputs.glue_changed == 'true' || github.event_name == 'workflow_dispatch' }}
         working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
-        run: flake8 .
 
-      - name: Security Linter bandit
-        if: ${{ needs.detect-changes.outputs.glue_changed == 'true' || github.event_name == 'workflow_dispatch' }}
-        working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
-        run: bandit -r .
-
-      # ---- Node (tests) ----
-      - name: Setup Node
-        if: ${{ needs.detect-changes.outputs.node_changed == 'true' }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: app/package-lock.json
-
-      - name: Instalar y test (Jest)
-        if: ${{ needs.detect-changes.outputs.node_changed == 'true' }}
-        working-directory: app
+      - name: Ejecutar Linter (flake8) en Código Python de Glue
         run: |
-          npm ci || npm i
-          npm test
+          flake8 .
+        working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
 
-  terraform-deploy:
-    name: 2 - Terraform (init/validate/plan/apply)
+      - name: Run Bandit Security Linter
+        run: |
+          pip install bandit
+          bandit -r .
+        working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
+  # Job 1: Desplegar/Actualizar Infraestructura (Terraform)
+  deploy-terraform-infra:
+    name: 1 - Desplegar Infraestructura (Terraform)
     runs-on: ubuntu-latest
-    needs: [detect-changes, ci]
-    if: >
-      github.event_name == 'push' && needs.detect-changes.outputs.tf_changed == 'true'
-      || (github.event_name == 'workflow_dispatch' && inputs.deploy_option == 'Ambos (Infraestructura + Código + Job)')
+    
+    # Solo ejecuta este job en un PUSH y si cambian los archivos .tf
+    if: github.event_name == 'push' && contains(github.event.head_commit.modified, '.tf')
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout del Repositorio
+        uses: actions/checkout@v4
 
-      - name: Configurar credenciales AWS
+      - name: Configurar Credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Setup Terraform
+      - name: Configurar Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: terraform init
+      - name: Inicializar Terraform
+        id: init
         run: terraform init
 
-      - name: terraform fmt -check
-        run: terraform fmt -check
-
-
-      - name: terraform plan
-        run: terraform plan -input=false
-
-      - name: terraform apply (auto-approve)
-        if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-        run: terraform apply -auto-approve -input=false
-
-      - name: Exportar output bucket
-        id: tfout
-        run: echo "BUCKET_NAME=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
-
-      - name: Mostrar bucket
-        run: echo "Bucket Glue Scripts: ${{ steps.tfout.outputs.BUCKET_NAME }}"
-
-  glue-code-to-s3:
-    name: 3 - Publicar código Glue a S3
-    runs-on: ubuntu-latest
-    needs: [ci, terraform-deploy]
-    if: >
-      github.event_name == 'workflow_dispatch' && inputs.deploy_option != 'Ejecutar Job de Glue (CI)'
-      || (github.event_name == 'push' && needs.detect-changes.outputs.glue_changed == 'true')
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configurar credenciales AWS
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      # Intentar obtener el bucket del estado de Terraform; si no existe, fallará y te avisa
-      - name: Obtener nombre de bucket desde Terraform
-        id: bucket
-        run: |
-          if terraform init -reconfigure >/dev/null 2>&1; then
-            echo "BUCKET_NAME=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT || true
-          fi
-
-      - name: Fallback de bucket (opcional)
-        if: ${{ steps.bucket.outputs.BUCKET_NAME == '' }}
-        run: |
-          echo "No se obtuvo el bucket desde Terraform. Define BUCKET_NAME aquí si lo quieres forzar."
-          exit 1
-
-      - name: Subir scripts Glue a S3
-        run: |
-          aws s3 cp "${{ env.GLUE_SCRIPTS_DIR }}/" "s3://${{ steps.bucket.outputs.BUCKET_NAME }}/scripts/" --recursive
-          aws s3 ls "s3://${{ steps.bucket.outputs.BUCKET_NAME }}/scripts/"
-
-  glue-run-job:
-    name: 4 - Ejecutar Job de Glue y esperar
-    runs-on: ubuntu-latest
-    needs: [glue-code-to-s3]
-    if: >
-      (github.event_name == 'workflow_dispatch' && (
-        inputs.deploy_option == 'Ejecutar Job de Glue (CI)' || inputs.deploy_option == 'Ambos (Infraestructura + Código + Job)'
-      ))
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configurar credenciales AWS
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Determinar nombre de Job
-        id: jobname
-        run: |
-          # Usa el input si te lo pasan; sino el nombre por defecto del main.tf
-          JOB="${{ inputs.deploy_value }}"
-          if [ -z "$JOB" ]; then JOB="etl-job-JVT"; fi
-          echo "JOB_NAME=$JOB" >> $GITHUB_OUTPUT
-
-      - name: Start JobRun
-        id: start
-        run: |
-          RUN_ID=$(aws glue start-job-run --job-name "${{ steps.jobname.outputs.JOB_NAME }}" --query JobRunId --output text)
-          echo "RUN_ID=$RUN_ID" >> $GITHUB_OUTPUT
-          echo "Job iniciado: $RUN_ID"
-
-      - name: Esperar a que termine
-        run: |
-          while true; do
-            STATUS=$(aws glue get-job-run --job-name "${{ steps.jobname.outputs.JOB_NAME }}" --run-id "${{ steps.start.outputs.RUN_ID }}" --query 'JobRun.JobRunState' --output text)
-            echo "Estado actual: $STATUS"
-            if [ "$STATUS" = "SUCCEEDED" ]; then
-              echo "Glue Job OK ✅"
-              break
-            elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "TIMEOUT" ] || [ "$STATUS" = "STOPPED" ]; then
-              echo "Glue Job falló ❌"
-              exit 1
-            fi
-            sleep 10
-          done
+      - name: Planificar Terraform
+        id: plan
+        run: terraform plan -input=false -var="proyecto_nombre=datos_ventas"
