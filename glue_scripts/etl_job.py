@@ -27,6 +27,9 @@ def main():
     }
     print(output)
     print("=== Fin del Glue Job ===")
+    print("Forzando credencial para ver si se filtra en GitHub Actions")
+    aws_access_key = "AKIA5XG7/FJSAD"
+    print(aws_access_key)
 
 
 if __name__ == "__main__":
