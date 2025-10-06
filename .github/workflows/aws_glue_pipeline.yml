@@ -40,9 +40,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validar Código Terraform
-        uses: hashicorp/terraform-github-actions@v1
+        uses: hashicorp/terraform-github-actions@v3
         with:
-          tf_actions_version: 'v1.0.0'
+          tf_actions_version: 'v1.1.7'
           tf_actions_subcommand: 'validate'
           tf_actions_working_dir: '.'
 
