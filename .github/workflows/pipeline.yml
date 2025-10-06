@@ -44,7 +44,7 @@ jobs:
               id: wait_glue_job
               run: |
                 while true; do
-                    STATUS=$(aws glue get-job-run --job-name "${{ steps.jobname.outputs.JOB_NAME }}" --run-id "${{ steps.start.outputs.RUN_ID }}" --query 'JobRun.JobRunState' --output text)
+                    STATUS=$(aws glue get-job-run --job-name "${{ steps.jobname.outputs.JOB_NAME }}" --run-id "${{ steps.start_glue_job.outputs.RUN_ID }}" --query 'JobRun.JobRunState' --output text)
                     echo "Estado actual: $STATUS"
                     if [ "$STATUS" = "SUCCEEDED" ]; then
                     echo "Glue Job OK ✅"
