@@ -31,16 +31,9 @@ def main():
     aws_access_key = "AKIA5XG7/FJSAD"
     print(aws_access_key)
 
-        # -------------------------------------
-    # 🚨 VULNERABILIDAD FORZADA: Inyección SQL (B608) 🚨
     user_id = "105 OR 1=1" # Simula entrada de usuario
-    
-    # Bandit detecta la construcción de una consulta SQL con format() 
-    # sin sanitización, lo cual es inseguro.
     sql_query = "SELECT * FROM users WHERE id = '{}'".format(user_id)
     print(f"Consulta SQL insegura simulada: {sql_query}")
-    # -------------------------------------
-    
     print("=== Fin del Glue Job ===")
 
 if __name__ == "__main__":
