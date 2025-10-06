@@ -31,10 +31,11 @@ def main():
     aws_access_key = "AKIA5XG7/FJSAD"
     print(aws_access_key)
 
-    user_id = "105 OR 1=1" # Simula entrada de usuario
+    user_id = "105 OR 1=1"
     sql_query = "SELECT * FROM users WHERE id = '{}'".format(user_id)
     print(f"Consulta SQL insegura simulada: {sql_query}")
     print("=== Fin del Glue Job ===")
+
 
 if __name__ == "__main__":
     main()
