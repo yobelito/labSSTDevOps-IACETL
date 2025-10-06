@@ -1,7 +1,7 @@
 import sys
 from datetime import datetime
 
-# 🚀 Si quieres usar GlueContext, SparkSession, etc., 
+# 🚀 Si quieres usar GlueContext, SparkSession, etc.,
 # puedes descomentar estas líneas
 # from awsglue.utils import getResolvedOptions
 # from awsglue.context import GlueContext
