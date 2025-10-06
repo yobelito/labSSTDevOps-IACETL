@@ -1,0 +1,57 @@
+name: Mi primer Pipeline CI/CD
+
+on: 
+    push:  
+        branches: [main]
+    workflow_dispatch:
+        inputs:
+            deploy_value:
+                description: 'Nombre Pipeline Glue'
+                type: string
+                required: true
+
+jobs:
+    glue-run-job:
+        runs-on: ubuntu-latest
+        environment: dev
+        if: >
+            (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Configurar AWS Credentials
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                aws-sesion-token: ${{ secrets.AWS_SESSION_TOKEN }}
+                aws-region: ${{ secrets.AWS_REGION }}
+           
+            - name: Determinar el nombre del job de Glue
+              id: vars
+              run: |
+                JOB_NAME="${{ github.event.inputs.deploy_value }}"
+                echo "JOB_NAME=$JOB_NAME" >> $GITHUB_OUTPUT
+
+            - name: Iniciar el Glue Job
+              id: start_glue_job
+              run: |
+                RUN_ID=$(aws glue start-job-run --job-name "${{ steps.jobname.outputs.JOB_NAME }}" --query JobRunId --output text)
+                echo "RUN_ID=$RUN_ID" >> $GITHUB_OUTPUT
+                echo "Job iniciado: $RUN_ID"
+
+            - name: Esperar a que el Glue Job termine
+              id: wait_glue_job
+              run: |
+                while true; do
+                    STATUS=$(aws glue get-job-run --job-name "${{ steps.jobname.outputs.JOB_NAME }}" --run-id "${{ steps.start.outputs.RUN_ID }}" --query 'JobRun.JobRunState' --output text)
+                    echo "Estado actual: $STATUS"
+                    if [ "$STATUS" = "SUCCEEDED" ]; then
+                    echo "Glue Job OK ✅"
+                    break
+                    elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "TIMEOUT" ] || [ "$STATUS" = "STOPPED" ]; then
+                    echo "Glue Job falló ❌"
+                    exit 1
+                    fi
+                    sleep 10
+                done
