@@ -77,18 +77,18 @@ jobs:
           pip install flake8 bandit
 
       - name: Linter flake8
-        if: ${{ needs.detect-changes.outputs.glue_changed == 'true' || github.event_name == 'workflow_dispatch' }}
+        #if: ${{ needs.detect-changes.outputs.glue_changed == 'true' }}
         working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
         run: flake8 .
 
       - name: Security Linter bandit
-        if: ${{ needs.detect-changes.outputs.glue_changed == 'true' || github.event_name == 'workflow_dispatch' }}
+        #if: ${{ needs.detect-changes.outputs.glue_changed == 'true' }}
         working-directory: ${{ env.GLUE_SCRIPTS_DIR }}
         run: bandit -r .
 
       # ---- Node (tests) ----
       - name: Setup Node
-        if: ${{ needs.detect-changes.outputs.node_changed == 'true' }}
+        #if: ${{ needs.detect-changes.outputs.node_changed == 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -96,7 +96,7 @@ jobs:
           cache-dependency-path: app/package-lock.json
 
       - name: Instalar y test (Jest)
-        if: ${{ needs.detect-changes.outputs.node_changed == 'true' }}
+        #if: ${{ needs.detect-changes.outputs.node_changed == 'true' }}
         working-directory: app
         run: |
           npm ci || npm i
